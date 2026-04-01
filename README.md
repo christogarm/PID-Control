@@ -37,6 +37,26 @@ $$
 e[k] = SP - V_{measurement}
 $$
 
+---
+
+# How to Use This API
+
+You only need two main functions:
+
+### Initialization
+```c
+PID_Init(PID_Control *pid_, PID_Parameters *param_);
+```
+
+### Update
+```c
+PID_Update(PID_Control *Ppid_, float input_, float dt_);
+```
+
+Call **`PID_Update`** only when a new input sample is available.
+
+---
+
 # PID Configuration
 
 The **`PID_Init(PID_Control *pid, PID_Parameters *param)`** function initializes and configures the PID controller with the following parameters:
@@ -61,7 +81,7 @@ You can use **`minOutput`** and **`maxOutput`** to constrain the controller outp
 Additionally, you can configure these limits using:
 
 ```c
-PID_setLimitOut(PID_Control *pid, float minOut, float maxOut);
+PID_setLimitOut(PID_Control *pid_, float minOut_, float maxOut_);
 ```
 
 ---
@@ -75,7 +95,7 @@ To prevent this, the integral term is clamped between predefined limits.
 You can configure these limits using:
 
 ```c
-PID_setClampInt(PID_Control *pid, float minInt, float maxInt);
+PID_setClampInt(PID_Control *pid_, float minInt_, float maxInt_);
 ```
 
 ---
@@ -91,7 +111,7 @@ The rate limit restricts how fast the output can increase or decrease.
 Configuration function:
 
 ```c
-PID_setRateLimit(PID_Control *pid, float rateLimit);
+PID_setRateLimit(PID_Control *pid_, float rateLimit_);
 ```
 
 ---
@@ -105,7 +125,7 @@ The deadband defines a range where the controller does not react.
 Configuration function:
 
 ```c
-PID_setDeadband(PID_Control *pid, float deadband);
+PID_setDeadband(PID_Control *pid_, float deadband_);
 ```
 
 ---
@@ -135,7 +155,7 @@ Interpretation:
 Configuration function:
 
 ```c
-PID_setAlpha(PID_Control *pid, float alpha);
+PID_setAlpha(PID_Control *pid_, float alpha_);
 ```
 
 ---
@@ -166,20 +186,3 @@ When the output reaches its maximum or minimum limit, the integral term is stopp
 
 This helps maintain a smoother system response.
 
----
-
-# How to Use This API
-
-You only need two main functions:
-
-### Initialization
-```c
-PID_Init(PID_Control *pid, PID_Parameters *param);
-```
-
-### Update
-```c
-PID_Update(PID_Control *pid, float input);
-```
-
-Call **`PID_Update`** only when a new input sample is available.
