@@ -9,7 +9,8 @@
 #define MAIN_H
 
 /* Macros o enums*/
-#define ITERATIONS 4
+#define ITERATIONS 1000
+#define INPUT_PLANT_INIT 20
 
 typedef enum
 {
