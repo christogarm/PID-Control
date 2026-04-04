@@ -21,6 +21,7 @@ typedef enum
 {
     LOG_INT,
     LOG_FLOAT,
+    LOG_DOUBLE,
     LOG_STRING,
 } loggerDataType_t;
 
@@ -29,7 +30,7 @@ typedef struct
     const char *filename;      // Nombre del Archivo
     FILE *fileLogger;          // Archivo
     loggerDataType_t dataType; // Apunta un buffer de los tipos de Datos a utilizar
-    uint32_t size;             // Cantidad de Datos que se cargaran en una sola fila
+    size_t size;             // Cantidad de Datos que se cargaran en una sola fila
     void *dataPoint;           // Apuntador de datos que se almacenaran
     char **pEncabezado;        // Apuntador para escribir el encabezado de la tabla de Datos
 } configLogger_t;
@@ -43,5 +44,6 @@ typedef struct
 LoggerStatus loggerInit(Logger_t *logger_, configLogger_t *dataLogger_, configLogger_t *eventLogger_); // Configuracion del Logger
 LoggerStatus logData(Logger_t *logger_, uint64_t time_);                                                               // Logging de Datos
 LoggerStatus logEvent(Logger_t *logger_, uint64_t time_);                                                              // Logging de Eventos
+LoggerStatus loggerDeInit(Logger_t *logger_);
 
 #endif
