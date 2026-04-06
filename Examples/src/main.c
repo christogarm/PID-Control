@@ -23,16 +23,17 @@ void TEST_PID_Init(void);
 /* Variables Inicializadas para las Pruebas */
 Logger_t hLogger = {0};
 Plant_t hPlant = {0};
+PID_Control hPID = {0};
 
-float data[4] = {0};
+float data[5] = {0};
 char event[100] = "Eventos";
 
 int main(void)
 {
     /* Inicializacion de los tipos datos */
     TEST_LoggerInit();
-    TEST_PID_Init();
     TEST_Plant_Init();
+    TEST_PID_Init();
 
     char element[10];
     char msg[100];
@@ -40,13 +41,24 @@ int main(void)
     /* Comenzamos aqui la Prueba de la Libreria PID */
     for (size_t i = 0; i < ITERATIONS; i++)
     {
-        if(plant_Update(&hPlant, INPUT_PLANT_INIT, 0, 0.01f) != PLANT_STATUS_OK){
-            printf("Error en la Actualizacion de los datos de la Planta %d",i);
+
+        data[inputPID] = hPID.input;
+        data[outputPID] = hPID.param.maxOutput-hPID.output;
+        data[Error] = hPID.error;
+        data[Error_int] = hPID.integralError;
+        data[Error_der] = hPID.derivativeError;
+
+        if (plant_Update(&hPlant, hPID.param.maxOutput-hPID.output, DISTURBANCE, PERIOD) != PLANT_STATUS_OK)
+        {
+            printf("Error en la Actualizacion de los datos de la Planta %d", i);
             break;
         }
 
-        data[input] = hPlant.in;
-        data[output] = hPlant.outMeasured;
+        if (PID_Update(&hPID, hPlant.outMeasured, PERIOD) != PID_STATUS_OK)
+        {
+            printf("Error en la Actualizacion de los datos del PID %d", i);
+            break;
+        }
 
         logData(&hLogger, i);
     }
@@ -59,10 +71,11 @@ int main(void)
 void TEST_LoggerInit(void)
 {
     char *encabezadoData[] = {
-        "INPUT",
-        "OUTPUT",
-        "SET POINT",
-        "ERROR"};
+        "INPUT PID",
+        "OUTPUT PID",
+        "ERROR",
+        "ERROR INTEGRAL",
+        "ERROR DERIVATIVO"};
 
     char *encabezadoEvent[] = {
         "DESCRIPCION"};
@@ -70,7 +83,7 @@ void TEST_LoggerInit(void)
     configLogger_t dataLogger_ = {
         .filename = "dataLogger.csv",
         .dataType = LOG_FLOAT,
-        .size = 4,
+        .size = 5,
         .dataPoint = data,
         .pEncabezado = encabezadoData};
 
@@ -92,18 +105,18 @@ void TEST_LoggerInit(void)
 void TEST_Plant_Init(void)
 {
     configPlant configPlant_ = {
-        .K = -5,          // Ganancia de la Entrada
-        .tau = 4,         // Constante del tiempo del Sistema
-        .initInput = 0,  // Condicion Inicial de la entrada de la Planta
-        .initOutput = 0, // Condicion Inicial de la salida de la Planta
-        .minOut = -100,
-        .maxOut = 15, // Saturacion de la salida de la Planta
-        .minIn = 0,
-        .maxIn = 100,         // Saturacion de la entrada de la entrada
-        .noiseAmpIN = 0,      // Amplitud del Ruido de la entrada
-        .noiseAmpOUT = 0,      // Amplitud del Ruido de la entrada
-        .delaySamplesIN = 1,  // Retraso de la entrada del sistema
-        .delaySamplesOUT = 1, // Retraso de la entrada del sistema
+        .K = -0.2,                     // Ganancia de la Entrada
+        .tau = 60,                    // Constante del tiempo del Sistema
+        .initInput = OUTPUT_PID_INIT, // Condicion Inicial de la entrada de la Planta
+        .initOutput = INPUT_PID_INIT, // Condicion Inicial de la salida de la Planta
+        .minOut = -5,
+        .maxOut = 25, // Saturacion de la salida de la Planta
+        .minIn = OUTPUT_PID_MIN,
+        .maxIn = OUTPUT_PID_MAX, // Saturacion de la entrada de la entrada
+        .noiseAmpIN = 0.1,         // Amplitud del Ruido de la entrada
+        .noiseAmpOUT = 0.2,        // Amplitud del Ruido de la entrada
+        .delaySamplesIN = 10,     // Retraso de la entrada del sistema
+        .delaySamplesOUT = 10,    // Retraso de la entrada del sistema
     };
     if (plant_Init(&hPlant, &configPlant_) != PLANT_STATUS_OK)
     {
@@ -115,4 +128,26 @@ void TEST_Plant_Init(void)
 
 void TEST_PID_Init(void)
 {
+    PID_Parameters PID_config_ = {
+        .setPoint = 10,
+        .deadband = 0.1,
+        .Kp = 60,
+        .Ki = 2,
+        .Kd = 10,
+        .alpha = 0.7,
+        .rateLimit = 20,
+        .minOutput = OUTPUT_PID_MIN,
+        .maxOutput = OUTPUT_PID_MAX,
+        .initOutput = OUTPUT_PID_INIT,
+        .initInput = INPUT_PID_INIT,
+        .clampIntMin = -35,
+        .clampIntMax = 35,
+        .dt = PERIOD};
+
+    if (PID_Init(&hPID, &PID_config_) != PID_STATUS_OK)
+    {
+        printf("Error en la Configuracion del PID");
+        while (1)
+            ;
+    }
 }

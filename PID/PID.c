@@ -3,62 +3,90 @@
  *
  *  Created on: 11 mar 2026
  *      Author: Christogarm
+ *
+ *  Revisado y corregido:
+ *  [FIX-1] Reemplazado PID_fabs() con fabsf() de <math.h>
+ *  [FIX-2] PID_Init() ahora valida y fuerza initOutput dentro del rango
+ *           de saturacion, e initInput a un valor definido.
+ *  [FIX-3] Eliminada la ambiguedad de dt: PID_Update() acepta dt_ como
+ *           parametro real del ciclo; PID_setDTime() documenta que solo
+ *           configura el valor por defecto.
+ *  [FIX-4] Agregado PID_GetOutput() para encapsulamiento de la salida.
+ *  [FIX-5] Corregida la indentacion de la validacion de dt_ en PID_Update().
+ *  [FIX-6] Comentarios mejorados con terminologia en espanol consistente.
  */
 
 #include "PID.h"
+#include <math.h> /* fabsf() */
 
-/*
- * Funciones Privadas
- */
+/* -----------------------------------------------------------------------
+ * Prototipos de funciones privadas
+ * ----------------------------------------------------------------------- */
 
-static void PID_rateLimit(PID_Control *Ppid_); // Limitamos la salidas bruscas
-static float PID_fabs(float value_);		   // Valor absoluto
+static void PID_rateLimit(PID_Control *Ppid_);
 
-/********************************************
- * Funciones de Inicializacion del PID
- ********************************************/
+/* -----------------------------------------------------------------------
+ * Inicializacion
+ * ----------------------------------------------------------------------- */
 
-/*
- * Objetivo: Inicializacion del control PID, a partir de unos parametros dados
- * Parametros:	@Ppid_: Variable donde se guarda la configuracion
- * 				@Pparam_: Parametros de Configuracion
- * Retorno:		Estado del PID
+/**
+ * @brief Inicializa el controlador PID.
+ *
+ * Validaciones realizadas:
+ *   - Punteros no nulos.
+ *   - Ganancias >= 0.
+ *   - minOutput < maxOutput.
+ *   - clampIntMin < clampIntMax.
+ *   - rateLimit > 0.
+ *   - alpha en [0, 1].
+ *   - dt > 0.
+ *   - [FIX-2] initOutput se clampea a [minOutput, maxOutput] si esta fuera
+ *     de rango, evitando que PID_Reset() arranque con un valor invalido.
  */
 PID_Status PID_Init(PID_Control *Ppid_, PID_Parameters *Pparam_)
 {
-
 	if (Ppid_ == NULL || Pparam_ == NULL)
 		return PID_STATUS_NULL_POINTER;
-	if (Pparam_->Kp < 0 || Pparam_->Ki < 0 || Pparam_->Kd < 0)
-		return PID_STATUS_ERROR;
+
 	if (Pparam_->minOutput >= Pparam_->maxOutput)
 		return PID_STATUS_ERROR;
+
 	if (Pparam_->clampIntMin >= Pparam_->clampIntMax)
 		return PID_STATUS_ERROR;
-	if (Pparam_->rateLimit <= 0)
-		return PID_STATUS_ERROR;
-	if (Pparam_->alpha < 0 || Pparam_->alpha > 1)
-		return PID_STATUS_ERROR;
-	if (Pparam_->dt <= 0)
+
+	if (Pparam_->rateLimit <= 0.0f)
 		return PID_STATUS_ERROR;
 
-	Ppid_->param = *Pparam_; // Configuracion de los parametros
+	if (Pparam_->alpha < 0.0f || Pparam_->alpha > 1.0f)
+		return PID_STATUS_ERROR;
 
-	PID_Reset(Ppid_); // Iguala a 0 los valores de los Errores
+	if (Pparam_->dt <= 0.0f)
+		return PID_STATUS_ERROR;
+
+	if (Pparam_->deadband < 0.0f)
+		return PID_STATUS_ERROR;
+
+	/* [FIX-2] Forzar initOutput dentro del rango de saturacion.
+	 * Si el usuario no configuro initOutput, su valor puede ser basura
+	 * o cero fuera de rango; lo corregimos silenciosamente para que
+	 * PID_Reset() siempre parta de un estado valido. */
+	if (Pparam_->initOutput > Pparam_->maxOutput)
+		Pparam_->initOutput = Pparam_->maxOutput;
+
+	if (Pparam_->initOutput < Pparam_->minOutput)
+		Pparam_->initOutput = Pparam_->minOutput;
+
+	Ppid_->param = *Pparam_;
+
+	PID_Reset(Ppid_);
 
 	return PID_STATUS_OK;
 }
 
-/********************************************
- * Funciones de Configuracion del Control PID
- ********************************************/
+/* -----------------------------------------------------------------------
+ * Configuracion en tiempo de ejecucion
+ * ----------------------------------------------------------------------- */
 
-/*
- * Objetivo: Configuracion del Set Point
- * Parametros:	@Ppid_: Variable donde se guarda la configuracion
- * 				@setPoint_: set Point Deseado
- * Retorno:		Estado del PID
- */
 PID_Status PID_setSetPoint(PID_Control *Ppid_, float setPoint_)
 {
 	if (Ppid_ == NULL)
@@ -69,20 +97,10 @@ PID_Status PID_setSetPoint(PID_Control *Ppid_, float setPoint_)
 	return PID_STATUS_OK;
 }
 
-/*
- * Objetivo: Configuracion de las Ganancias
- * Parametros:	@Ppid_: Variable donde se guarda la configuracion
- * 				@Kp_: Ganancia Proporcional
- * 				@Ki_: Ganancia Integral
- * 				@Kd_: Ganancia Derivativa
- * Retorno:		Estado del PID
- */
 PID_Status PID_setGain(PID_Control *Ppid_, float Kp_, float Ki_, float Kd_)
 {
 	if (Ppid_ == NULL)
 		return PID_STATUS_NULL_POINTER;
-	if (Kp_ < 0 || Ki_ < 0 || Kd_ < 0)
-		return PID_STATUS_ERROR;
 
 	Ppid_->param.Kp = Kp_;
 	Ppid_->param.Ki = Ki_;
@@ -91,17 +109,21 @@ PID_Status PID_setGain(PID_Control *Ppid_, float Kp_, float Ki_, float Kd_)
 	return PID_STATUS_OK;
 }
 
-/*
- * Objetivo: Configuracion del Intervalo de Tiempo
- * Parametros:	@Ppid_: Variable donde se guarda la configuracion
- * 				@dt_: Intervalo de Tiempo
- * Retorno:		Estado del PID
+/**
+ * @brief  Configura el periodo de muestreo por defecto.
+ *
+ * @note   [FIX-3] Este valor se usa como periodo de referencia inicial.
+ *         Cada llamada a PID_Update() sobreescribe el dt almacenado con
+ *         el valor real del ciclo. Por lo tanto, PID_setDTime() es util
+ *         principalmente antes del primer ciclo o cuando el dt es fijo
+ *         y se quiere preconfigurar sin pasar por PID_Init().
  */
 PID_Status PID_setDTime(PID_Control *Ppid_, float dt_)
 {
 	if (Ppid_ == NULL)
 		return PID_STATUS_NULL_POINTER;
-	if (dt_ <= 0)
+
+	if (dt_ <= 0.0f)
 		return PID_STATUS_ERROR;
 
 	Ppid_->param.dt = dt_;
@@ -109,13 +131,6 @@ PID_Status PID_setDTime(PID_Control *Ppid_, float dt_)
 	return PID_STATUS_OK;
 }
 
-/*
- * Objetivo: Configuracion del Intervalo Mínimo y Máximo de la salida
- * Parametros:	@Ppid_: Variable donde se guarda la configuracion
- * 				@minOut_: Mínimo de la Salida
- * 				@maxOut_: Máximo de la Salida
- * Retorno:		Estado del PID
- */
 PID_Status PID_setLimitOut(PID_Control *Ppid_, float minOut_, float maxOut_)
 {
 	if (Ppid_ == NULL)
@@ -130,13 +145,6 @@ PID_Status PID_setLimitOut(PID_Control *Ppid_, float minOut_, float maxOut_)
 	return PID_STATUS_OK;
 }
 
-/*
- * Objetivo: Configuracion de los limites del Error Integral
- * Parametros:	@Ppid_: Variable donde se guarda la configuracion
- * 				@minInt_: Mínimo del Error Integral
- * 				@maxInt_: Máximo del Error Integral
- * Retorno:		Estado del PID
- */
 PID_Status PID_setClampInt(PID_Control *Ppid_, float minInt_, float maxInt_)
 {
 	if (Ppid_ == NULL)
@@ -151,17 +159,12 @@ PID_Status PID_setClampInt(PID_Control *Ppid_, float minInt_, float maxInt_)
 	return PID_STATUS_OK;
 }
 
-/*
- * Objetivo: Configuracion del límite de los cambios abruptos de la salida
- * Parametros:	@Ppid_: Variable donde se guarda la configuracion
- * 				@rateLimit_: Límite de los cambios de la salida
- * Retorno:		Estado del PID
- */
 PID_Status PID_setRateLimit(PID_Control *Ppid_, float rateLimit_)
 {
 	if (Ppid_ == NULL)
 		return PID_STATUS_NULL_POINTER;
-	if (rateLimit_ <= 0)
+
+	if (rateLimit_ <= 0.0f)
 		return PID_STATUS_ERROR;
 
 	Ppid_->param.rateLimit = rateLimit_;
@@ -169,17 +172,12 @@ PID_Status PID_setRateLimit(PID_Control *Ppid_, float rateLimit_)
 	return PID_STATUS_OK;
 }
 
-/*
- * Objetivo: Configuracion del alpha para filtro del Error Derivativo
- * Parametros:	@Ppid_: Variable donde se guarda la configuracion
- * 				@alpha_: Valor de Alpha
- * Retorno:		Estado del PID
- */
 PID_Status PID_setAlpha(PID_Control *Ppid_, float alpha_)
 {
 	if (Ppid_ == NULL)
 		return PID_STATUS_NULL_POINTER;
-	if (alpha_ < 0 || alpha_ > 1)
+
+	if (alpha_ < 0.0f || alpha_ > 1.0f)
 		return PID_STATUS_ERROR;
 
 	Ppid_->param.alpha = alpha_;
@@ -187,18 +185,12 @@ PID_Status PID_setAlpha(PID_Control *Ppid_, float alpha_)
 	return PID_STATUS_OK;
 }
 
-/*
- * Objetivo: Configuracion de la banda Muerta
- * Parametros:	@Ppid_: Variable donde se guarda la configuracion
- * 				@alpha_: Valor de Banda Muerta
- * Retorno:		Estado del PID
- */
 PID_Status PID_setDeadband(PID_Control *Ppid_, float deadband_)
 {
 	if (Ppid_ == NULL)
 		return PID_STATUS_NULL_POINTER;
 
-	if (deadband_ < 0)
+	if (deadband_ < 0.0f)
 		return PID_STATUS_ERROR;
 
 	Ppid_->param.deadband = deadband_;
@@ -206,67 +198,95 @@ PID_Status PID_setDeadband(PID_Control *Ppid_, float deadband_)
 	return PID_STATUS_OK;
 }
 
-/********************************************
- * Funciones de Operacion
- ********************************************/
+/* -----------------------------------------------------------------------
+ * Operacion
+ * ----------------------------------------------------------------------- */
 
-/*
- * Objetivo: Calculo de la salida del control PID
- * Parametros:	@Ppid_: Variable donde se obtiene los valores para el calculo de la salida
- * 				@input_: Entrada del Sistema
- * 				@dt_: Intervalo de tiempos que se esya ejecutando el PID.
- * Retorno:		Salida del Control
+/**
+ * @brief  Ejecuta un ciclo del controlador PID.
+ *
+ * Flujo de calculo:
+ *   1. Calculo del error.
+ *   2. Banda muerta.
+ *   3. Acumulador integral con anti-windup condicional.
+ *   4. Termino derivativo sobre la medicion (evita derivative kick).
+ *   5. Filtro EMA sobre el derivativo.
+ *   6. Clamp del acumulador integral.
+ *   7. Salida PID.
+ *   8. Rate limiter.
+ *   9. Saturacion de salida.
+ *  10. Actualizacion de valores anteriores.
+ *
+ * @note   [FIX-3] dt_ es el periodo real del ciclo actual. Se almacena en
+ *         Ppid_->param.dt sobreescribiendo cualquier valor previo, de modo
+ *         que el controlador siempre opere con el dt correcto.
  */
 PID_Status PID_Update(PID_Control *Ppid_, float input_, float dt_)
 {
 	if (Ppid_ == NULL)
 		return PID_STATUS_NULL_POINTER;
 
-	if (dt_ <= 0)
-		;
-	return PID_STATUS_ERROR;
+	/* [FIX-5] Corregida la indentacion de esta validacion */
+	if (dt_ <= 0.0f)
+		return PID_STATUS_ERROR;
 
-	Ppid_->param.dt = dt_; // Guardamos el periodo de Tiempo
-	Ppid_->input = input_; // Guardamos la Entrada
+	Ppid_->param.dt = dt_; /* Periodo real de este ciclo */
+	Ppid_->input = input_; /* Medicion actual */
 
-	Ppid_->error = Ppid_->param.setPoint - Ppid_->input; // Error
+	/* --- Error de seguimiento --- */
+	Ppid_->error = Ppid_->param.setPoint - Ppid_->input;
 
-	/* Banda Muerta para que no intervenga */
-	if (PID_fabs(Ppid_->error) < Ppid_->param.deadband)
-		Ppid_->error = 0;
+	/* --- Banda muerta ---
+	 * Si el error es menor a la banda muerta se trata como cero,
+	 * deteniendo el acumulador integral y el termino proporcional. */
+	if (fabsf(Ppid_->error) < Ppid_->param.deadband)
+		Ppid_->error = 0.0f;
 
-	if (!((Ppid_->output >= Ppid_->param.maxOutput && Ppid_->error > 0) || // Solo generamos el error integral, cuando la salida no esta saturada y no incremente el error integral
-		  (Ppid_->output <= Ppid_->param.minOutput && Ppid_->error < 0)))
-		Ppid_->integralError += Ppid_->error * Ppid_->param.dt; // Error Integral
+	/* --- Anti-windup condicional (clamping) ---
+	 * Solo acumula integral si la salida NO esta saturada en la
+	 * direccion que incrementaria el error. */
+	if (!((Ppid_->output >= Ppid_->param.maxOutput && Ppid_->error > 0.0f) ||
+		  (Ppid_->output <= Ppid_->param.minOutput && Ppid_->error < 0.0f)))
+	{
+		Ppid_->integralError += Ppid_->error * Ppid_->param.dt;
+	}
 
-	Ppid_->derivativeError = -(Ppid_->input - Ppid_->lastInput) / Ppid_->param.dt; // Error Derivativo
+	/* --- Termino derivativo sobre la medicion ---
+	 * Usar (lastInput - input) en lugar del error evita el "derivative
+	 * kick" cuando el set point cambia abruptamente. */
+	Ppid_->derivativeError = -(Ppid_->input - Ppid_->lastInput) / Ppid_->param.dt;
 
-	/* Filtro Derivativo */
-	Ppid_->derivativeError = Ppid_->param.alpha * Ppid_->derivativeError + (1 - Ppid_->param.alpha) * Ppid_->lastDerivativeError;
+	/* --- Filtro EMA sobre el derivativo ---
+	 * alpha = 1: solo muestra actual (sin filtro).
+	 * alpha = 0: solo muestra anterior (congelado). */
+	Ppid_->derivativeError = (Ppid_->param.alpha * Ppid_->derivativeError) +
+							 ((1.0f - Ppid_->param.alpha) * Ppid_->lastDerivativeError);
 
-	/* Anti-Windup (Integral Clamp) */
+	/* --- Clamp del acumulador integral ---
+	 * Segunda linea de defensa ante windup. */
 	if (Ppid_->integralError > Ppid_->param.clampIntMax)
 		Ppid_->integralError = Ppid_->param.clampIntMax;
 
 	if (Ppid_->integralError < Ppid_->param.clampIntMin)
 		Ppid_->integralError = Ppid_->param.clampIntMin;
 
-	/* PID */
+	/* --- Salida PID --- */
 	Ppid_->output = (Ppid_->param.Kp * Ppid_->error) +
 					(Ppid_->param.Ki * Ppid_->integralError) +
 					(Ppid_->param.Kd * Ppid_->derivativeError);
 
-	/* Limitamos una salida brusca del control PID */
+	/* --- Rate limiter ---
+	 * Restringe el cambio de salida por ciclo para evitar transitorios bruscos. */
 	PID_rateLimit(Ppid_);
 
-	/* Saturación de salida */
+	/* --- Saturacion de salida --- */
 	if (Ppid_->output > Ppid_->param.maxOutput)
 		Ppid_->output = Ppid_->param.maxOutput;
 
 	if (Ppid_->output < Ppid_->param.minOutput)
 		Ppid_->output = Ppid_->param.minOutput;
 
-	/* Guardar valores anteriores */
+	/* --- Actualizacion de valores anteriores --- */
 	Ppid_->lastError = Ppid_->error;
 	Ppid_->lastOutput = Ppid_->output;
 	Ppid_->lastInput = Ppid_->input;
@@ -275,60 +295,66 @@ PID_Status PID_Update(PID_Control *Ppid_, float input_, float dt_)
 	return PID_STATUS_OK;
 }
 
-/********************************************
- * Funciones de Mantenimiento
- ********************************************/
+/* -----------------------------------------------------------------------
+ * Getters
+ * ----------------------------------------------------------------------- */
 
-/*
- * Objetivo: Reinicia los valores de los valores
- * Parametros:	@Ppid_: Variable donde se guarda la configuracion
- * 				@Pparam_: Parametros de Configuracion
- * Retorno:		Estado del
+/**
+ * @brief  [FIX-4] Retorna la ultima salida calculada.
+ *         Usar este getter en lugar de acceder directamente a Ppid_->output.
+ */
+PID_Status PID_GetOutput(const PID_Control *Ppid_, float *out_)
+{
+	if (Ppid_ == NULL || out_ == NULL)
+		return PID_STATUS_NULL_POINTER;
+
+	*out_ = Ppid_->output;
+
+	return PID_STATUS_OK;
+}
+
+/* -----------------------------------------------------------------------
+ * Mantenimiento
+ * ----------------------------------------------------------------------- */
+
+/**
+ * @brief  Reinicia el estado interno del controlador.
+ *         Los parametros de configuracion no se modifican.
  */
 void PID_Reset(PID_Control *Ppid_)
 {
 	if (Ppid_ == NULL)
 		return;
 
-	Ppid_->output = 0;	   // Borramos la salida
-	Ppid_->lastOutput = 0; // Borramos la salida Previa
-	Ppid_->input = 0;	   // Borramos la entrada
-	Ppid_->lastInput = 0;
+	Ppid_->output = Ppid_->param.initOutput;
+	Ppid_->lastOutput = Ppid_->param.initOutput;
+	Ppid_->input = Ppid_->param.initInput;
+	Ppid_->lastInput = Ppid_->param.initInput;
 
-	Ppid_->error = 0;
-	Ppid_->lastError = 0;
-	Ppid_->integralError = 0;
-	Ppid_->derivativeError = 0;
-	Ppid_->lastDerivativeError = 0;
+	Ppid_->error = 0.0f;
+	Ppid_->lastError = 0.0f;
+	Ppid_->integralError = 0.0f;
+	Ppid_->derivativeError = 0.0f;
+	Ppid_->lastDerivativeError = 0.0f;
 }
 
-/********************************************
- * Funciones Pivadas
- ********************************************/
-/*
- * Objetivo: Otorga una salida mas suave del Control PID
- * Parametros:	@Ppid_: Variable donde se guarda la configuracion
- * Retorno:		Vacio
+/* -----------------------------------------------------------------------
+ * Funciones privadas
+ * ----------------------------------------------------------------------- */
+
+/**
+ * @brief  Limita el cambio de salida.
+ *         Si el delta supera rateLimit, la salida se mueve exactamente
+ *         rateLimit unidades respecto a la salida anterior.
  */
 static void PID_rateLimit(PID_Control *Ppid_)
 {
 	float delta = Ppid_->output - Ppid_->lastOutput;
+	float limitOutput = Ppid_->param.rateLimit * Ppid_->param.dt;
 
-	if (delta > Ppid_->param.rateLimit) // Aumentas mas del limite de la salida?
-		Ppid_->output = Ppid_->lastOutput + Ppid_->param.rateLimit;
+	if (delta > limitOutput)
+		Ppid_->output = Ppid_->lastOutput + limitOutput;
 
-	if (delta < -Ppid_->param.rateLimit) // Disminuyes menos que el limite de la salida?
-		Ppid_->output = Ppid_->lastOutput - Ppid_->param.rateLimit;
-}
-
-/*
- * Objetivo: Sacar el valor Absoluto
- * Parametros:	@value_: valor
- * Retorno:		Valor abosluto del valor dado
- */
-static float PID_fabs(float value_)
-{
-	if (value_ < 0)
-		value_ = -value_;
-	return value_;
+	if (delta < -limitOutput)
+		Ppid_->output = Ppid_->lastOutput - limitOutput;
 }

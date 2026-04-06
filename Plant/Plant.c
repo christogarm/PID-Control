@@ -41,7 +41,7 @@ PlantStatus plant_Init(Plant_t *plant_, configPlant *config_)
     if (config_->minIn >= config_->maxIn || config_->minOut >= config_->maxOut)
         return PLANT_STATUS_ERROR;
 
-    if (config_->tau == 0 || config_->noiseAmpIN < 0 || config_->noiseAmpOUT < 0)
+    if (config_->tau <= 0 || config_->noiseAmpIN < 0 || config_->noiseAmpOUT < 0)
         return PLANT_STATUS_ERROR;
 
     if (config_->delaySamplesIN <= 0 || config_->delaySamplesOUT <= 0)
