@@ -43,12 +43,12 @@ int main(void)
     {
 
         data[inputPID] = hPID.input;
-        data[outputPID] = hPID.param.maxOutput-hPID.output;
+        data[outputPID] = hPID.output;
         data[Error] = hPID.error;
         data[Error_int] = hPID.integralError;
         data[Error_der] = hPID.derivativeError;
 
-        if (plant_Update(&hPlant, hPID.param.maxOutput-hPID.output, DISTURBANCE, PERIOD) != PLANT_STATUS_OK)
+        if (plant_Update(&hPlant, hPID.output, DISTURBANCE, PERIOD) != PLANT_STATUS_OK)
         {
             printf("Error en la Actualizacion de los datos de la Planta %d", i);
             break;
@@ -113,10 +113,10 @@ void TEST_Plant_Init(void)
         .maxOut = 25, // Saturacion de la salida de la Planta
         .minIn = OUTPUT_PID_MIN,
         .maxIn = OUTPUT_PID_MAX, // Saturacion de la entrada de la entrada
-        .noiseAmpIN = 0.1,         // Amplitud del Ruido de la entrada
-        .noiseAmpOUT = 0.2,        // Amplitud del Ruido de la entrada
-        .delaySamplesIN = 10,     // Retraso de la entrada del sistema
-        .delaySamplesOUT = 10,    // Retraso de la entrada del sistema
+        .noiseAmpIN = 0,         // Amplitud del Ruido de la entrada
+        .noiseAmpOUT = 0,        // Amplitud del Ruido de la entrada
+        .delaySamplesIN = 1,     // Retraso de la entrada del sistema
+        .delaySamplesOUT = 1,    // Retraso de la entrada del sistema
     };
     if (plant_Init(&hPlant, &configPlant_) != PLANT_STATUS_OK)
     {
@@ -130,10 +130,10 @@ void TEST_PID_Init(void)
 {
     PID_Parameters PID_config_ = {
         .setPoint = 10,
-        .deadband = 0.1,
-        .Kp = 60,
-        .Ki = 2,
-        .Kd = 10,
+        .deadband = 0,
+        .Kp = -60,
+        .Ki = -2,
+        .Kd = -10,
         .alpha = 0.7,
         .rateLimit = 20,
         .minOutput = OUTPUT_PID_MIN,
